@@ -1,0 +1,9 @@
+target
+.git
+.gitignore
+.env
+.venv
+__pycache__
+*.pyc
+node_key.bin
+reputation.json

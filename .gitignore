@@ -1,0 +1,42 @@
+# Rust build artifacts
+/target
+
+# Local environment / secrets
+.env
+node_key.bin
+*.key
+*.pem
+
+# Generated node state
+ledger.json
+reputation.json
+~/.ledger/
+
+# Python demo clients
+__pycache__/
+*.pyc
+.venv/
+
+# LaTeX build artifacts
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.synctex.gz
+
+# Logs & test output
+*.log
+injection_results.log
+demo_results.log
+
+# Local scratch notes
+duvidas.md
+explain.md
+apresentacao.md
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

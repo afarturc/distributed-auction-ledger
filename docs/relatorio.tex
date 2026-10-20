@@ -1,0 +1,286 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[portuguese]{babel}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{cite}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{positioning, shapes, arrows, shadows, calc, backgrounds}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+
+\onehalfspacing
+
+% Configuração de cores para código
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstset{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codepurple},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{orange},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\hyphenation{block-chain de-scen-tra-li-za-da mo-du-la-ri-da-de trans-a-coes a-rqui-te-tu-ra as-si-na-tu-ras li-ci-ta-coes as-sin-cro-na cons-tru-cao per-mis-sion-less Kademlia Gossipsub}
+
+\begin{document}
+
+% --- CAPA ---
+\begin{titlepage}
+    \centering
+    \vspace*{1cm}
+    \includegraphics[width=0.4\textwidth]{images/fcup.png}\par\vspace{1cm}
+    {\scshape\Large Faculdade de Ciências da Universidade do Porto \par}
+    \vspace{1.5cm}
+    {\huge\bfseries Public Ledger for Auctions \par}
+    \vspace{0.5cm}
+    {\Large\itshape Arquitetura Híbrida com Blockchain, Consenso VRF e Armazenamento Distribuído em DHT Kademlia \par}
+    \vspace{2cm}
+    {\Large\textbf{Trabalho Prático de Segurança de Sistemas e Dados} \par}
+    \vspace{2cm}
+    {\large Artur Correia (up202509273) \\ Gonçalo Sousa (up202509794) \\ Tiago Pinheiro (up202207890) \par}
+    \vfill
+    {\large Porto, Portugal \\ Maio de 2026 \par}
+\end{titlepage}
+
+\newpage
+\tableofcontents
+\newpage
+
+\section*{Resumo}
+A dependência de autoridades centrais em plataformas de leilões eletrónicos cria vulnerabilidades graves, como pontos únicos de falha e opacidade no processo de licitação. Neste trabalho, descrevemos o desenvolvimento de um sistema de leilões totalmente descentralizado, construído sobre uma arquitetura de rede Peer-to-Peer. A nossa solução utiliza uma blockchain para garantir a ordem imutável das licitações e uma Tabela Hash Distribuída (DHT) para gerir metadados pesados de forma eficiente. O sistema implementa motores de consenso modulares, permitindo alternar entre Proof-of-Work e um Proof-of-Stake avançado que utiliza Funções Aleatórias Verificáveis (VRF) e um sistema de reputação para combater agentes maliciosos. Os resultados demonstram que a separação de dados entre on-chain e off-chain permite uma escalabilidade superior, mantendo a segurança e integridade exigidas por um sistema financeiro distribuído.
+
+\newpage
+
+\section{Introdução}
+
+Este trabalho foi desenvolvido no âmbito da unidade curricular de Segurança de Sistemas Distribuídos e tem como objetivo a criação de um sistema de leilões distribuído, seguro e transparente. A motivação principal para este projeto surge da necessidade de criar sistemas de mercado mais justos e resistentes a manipulações. Nos modelos tradicionais de leilão, os participantes dependem de uma entidade central de confiança, responsável por gerir e validar as propostas apresentadas. No entanto, este modelo implica confiar que o leiloeiro atua de forma imparcial e não favorece determinados participantes nem ignora propostas legítimas.
+
+Ao transpor esta lógica para um sistema distribuído, eliminamos a dependência de uma entidade central, substituindo-a por mecanismos criptográficos e algoritmos distribuídos auditáveis por todos os participantes. Desta forma, é possível garantir maior transparência, integridade e segurança no processo de licitação. O maior desafio que encontrámos no início do desenvolvimento foi como lidar com a quantidade de dados. Se quisermos leiloar algo com uma descrição detalhada, guardar esse texto em todos os nós da rede faria com que a nossa blockchain ficasse enorme e lenta muito rapidamente. Por isso, decidimos desenhar uma arquitetura que utiliza o melhor de dois mundos: a segurança da blockchain para o "quem e quanto" e a eficiência da DHT para o "quê".
+
+Ao longo deste relatório, vamos explicar como construímos cada peça deste puzzle, desde a camada de rede que permite aos nós descobrirem-se uns aos outros, até à lógica de consenso que impede que um atacante tome o controlo da rede. O nosso objetivo foi construir algo que não fosse apenas um exercício académico, mas sim um protótipo funcional e seguro de um sistema distribuído moderno. Queremos demonstrar que é possível construir um Ledger que escala horizontalmente e que não sofre dos problemas típicos de inchaço de dados que afligem muitas redes atuais.
+
+\section{Arquitetura e Overlay de Rede P2P}
+
+\subsection{Visão Geral da Infraestrutura}
+A conceção do sistema seguiu um modelo de isolamento de processos, onde cada nó da rede corre dentro de um contentor Docker independente. Para que a visualização da interação entre os componentes seja clara, desenhámos o diagrama de arquitetura apresentado na Figura \ref{fig:arquitetura}. Este diagrama reflete como o tráfego flui desde a submissão do utilizador até à propagação final na rede P2P, destacando a separação entre a interface de aplicação e o núcleo de consenso.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{images/diagram.png}\par\vspace{0.5cm}
+\caption{Arquitetura detalhada do nó: Separação entre a interface de aplicação, o substrato P2P e o motor de consenso imutável.}
+\label{fig:arquitetura}
+\end{figure}
+
+\subsection{A Fundação com libp2p}
+Para a comunicação entre os nós, decidimos utilizar a biblioteca libp2p. Esta escolha permitiu-nos focar na lógica do nosso sistema em vez de estarmos a lidar com sockets TCP básicos e handshakes manuais. A nossa stack de rede começa no transporte TCP, sobre o qual aplicámos a camada de segurança Noise. Isto garante que todas as mensagens trocadas entre os nós são cifradas ponto-a-ponto, protegendo a rede contra bisbilhoteiros. Além disso, utilizamos o multiplexador Yamux, que é fundamental para permitir que várias conversas aconteçam em simultâneo entre os mesmos dois nós, como por exemplo a troca de blocos da blockchain e a resposta a pedidos de metadados na DHT.
+
+\subsection{Topologia e Descoberta via S/Kademlia}
+A topologia da nossa rede é gerida pelo protocolo S/Kademlia. Ao contrário de uma rede centralizada onde todos se ligam ao mesmo servidor, na nossa rede os nós organizam-se numa estrutura baseada na distância lógica XOR entre os seus IDs. Implementámos uma tabela de roteamento com 160 buckets, onde cada nó conhece vizinhos a diferentes distâncias, o que garante que qualquer nó pode ser encontrado em poucos saltos. Quando um nó novo entra na rede, ele liga-se a um dos nossos Bootstrap Nodes e começa a perguntar pelos vizinhos mais próximos. Este processo de descoberta é contínuo e permite que a rede seja resiliente ao churn, permitindo que o sistema continue a funcionar mesmo quando muitos computadores entram e saem da rede ao mesmo tempo.
+
+\subsection{Disseminação de Dados com Gossipsub}
+Embora a DHT seja ótima para guardar e localizar dados, ela não é a melhor ferramenta para espalhar licitações que precisam de ser conhecidas por todos quase instantaneamente. Na nossa arquitetura, não existe uma "Mempool Global" centralizada; em vez disso, cada nó aloca uma Mempool estritamente local na sua memória. Para manter o estado sincronizado, optámos por utilizar o protocolo Gossipsub. Funciona como um sistema de rumores inteligente: quando um nó recebe uma transação na sua Mempool local, retransmite-a apenas para um grupo restrito de vizinhos na sua malha (\textit{mesh}). Estes validam a transação, guardam-na nas respetivas Mempools e propagam-na adiante. Este método cria a ilusão de uma Mempool global e garante uma propagação epidémica extremamente rápida, assegurando que todos os mineradores convergem para o mesmo estado de transações pendentes em frações de segundo.
+
+\section{Criptografia e Estruturas de Dados}
+
+\subsection{Identidade Digital com Ed25519}
+A segurança do nosso sistema baseia-se na criptografia de chaves assimétricas. Escolhemos o algoritmo Ed25519 porque é extremamente rápido e gera assinaturas muito pequenas, o que nos ajuda a poupar espaço precioso em cada bloco. Cada nó gera o seu próprio par de chaves no arranque. A chave pública serve como a identidade pública do utilizador na rede, enquanto a chave privada é o seu segredo mais bem guardado, usado para assinar cada licitação. Para ilustrar o quão eficiente é esta estrutura, apresentamos na Tabela \ref{tab:tx_structure} o detalhe de como os dados são organizados na memória.
+
+\begin{table}[H]
+\centering
+\caption{Estrutura de Memória da Transação Serializada}
+\label{tab:tx_structure}
+\begin{tabular}{@{}llp{8cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Tamanho} & \textbf{Descrição Técnica} \\ \midrule
+TxID & 32 bytes & \textit{Hash} SHA-256 único para cada transação. \\ 
+SenderPubKey & 32 bytes & Identidade Ed25519 do remetente. \\ 
+Nonce & 8 bytes & Contador sequencial para impedir ataques de replay. \\ 
+Payload & Variável & Conteúdo da ação (ex: ID do leilão e preço). \\ 
+Signature & 64 bytes & Prova criptográfica de autorização. \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Prevenção de Replay e Nonces}
+Durante a fase de testes, descobrimos que um atacante mal-intencionado poderia capturar uma licitação legítima e reenviá-la várias vezes para tentar enganar o sistema. Para impedir este tipo de ataque de replay, implementámos um sistema de nonces. Basicamente, cada utilizador tem um contador pessoal que deve subir sempre que faz uma nova ação. O nosso Ledger guarda o registo do último número usado por cada pessoa. Se alguém tentar submeter uma transação com um número antigo ou repetido, o sistema percebe logo que é uma tentativa de fraude e descarta a mensagem sem a processar.
+
+\subsection{A Estrutura do Ledger e Blocos}
+O nosso Ledger é o coração do sistema e consiste numa lista de blocos imutável. Cada bloco novo que é criado contém obrigatoriamente o hash do bloco que veio antes dele, criando uma corrente digital inquebrável. Dentro de cada bloco, as transações são guardadas de forma rigorosa e ordenada. Para garantir que ninguém mexe nos dados depois de minerados, calculamos um hash total de todas as transações e metemo-lo no cabeçalho. Isto funciona como um selo de lacre: se alguém mudar sequer uma letra numa licitação antiga, o hash do bloco muda completamente, o que faz com que todos os blocos seguintes fiquem inválidos e a rede inteira detete a adulteração.
+
+\section{O Padrão de Armazenamento Off-chain}
+
+\subsection{A Necessidade de Separar os Dados}
+Um dos dilemas técnicos mais interessantes que tivemos de resolver foi como guardar descrições longas de itens (como manuais ou fotos em texto) sem destruir a performance da blockchain. Percebemos que estes dados pesados não precisam de estar no "livro de atas" financeiro, pois o que realmente importa para a segurança do leilão é o valor licitado e o vencedor. Se guardássemos tudo na blockchain, o sistema deixaria de ser escalável. Por isso, decidimos usar a estratégia de "Off-chain Storage", onde a blockchain serve apenas para validação e a DHT para armazenamento.
+
+\subsection{Implementação Prática com STORE e FIND\_VALUE}
+Para cumprir este objetivo, demos um propósito útil aos comandos STORE e FIND\_VALUE do Kademlia. Quando um utilizador cria um leilão com uma descrição detalhada através do nosso novo endpoint "Rich", o sistema entra em ação de forma inteligente. Primeiro, ele pega na descrição longa e envia-a para a rede P2P usando o comando STORE, guardando-a de forma distribuída. Depois, o sistema cria uma transação minúscula para a blockchain que contém apenas o preço base e uma "metadata\_key", que é como se fosse um bilhete de cacifo. Quando alguém quer ver o leilão, usa esse bilhete para pedir a descrição à DHT usando o comando FIND\_VALUE.
+    
+    Nota: a abordagem usada na nossa simulação é adequada para um cluster controlado, mas não é diretamente escalável para uma rede com milhões de peers. Uma pesquisa ampla e sem limites por termos como "auction" poderia gerar tráfego massivo e agir como um vetor de DoS. Em produção, consultas à DHT devem incluir timeouts, limites de profundidade, caching e consultas direcionadas (por exemplo via índices ou gateways) para mitigar esses riscos.
+
+\subsection{Vantagens e Desafios da Abordagem}
+Esta escolha de design trouxe-nos vantagens enormes na escalabilidade. O tamanho da nossa blockchain mantém-se pequeno e constante, independentemente de os utilizadores escreverem parágrafos curtos ou textos gigantes. No entanto, isto introduz uma complexidade adicional: o sistema torna-se inerentemente assíncrono. 
+
+É importante notar que, ao consultarmos a DHT através da API, o resultado não é devolvido imediatamente no corpo da resposta JSON. Isto acontece porque a rede P2P é imprevisível; a descrição pode estar num nó vizinho ou num nó do outro lado do mundo, e a API não pode ficar bloqueada à espera (o que causaria timeouts no protocolo HTTP). Optámos por uma Arquitetura Orientada a Eventos: a API confirma que o pedido de procura foi lançado com sucesso e o utilizador pode observar a chegada do dado nos logs do nó. Numa aplicação real de produção, este fluxo seria gerido através de WebSockets ou Polling, mas para este protótipo, a visualização nos logs é a prova irrefutável de que a rede P2P comunicou e recuperou o dado de forma distribuída.
+
+\section{Motores de Consenso e Segurança}
+
+\subsection{Proof-of-Work: Proteção via Esforço}
+A primeira camada de segurança que implementámos foi o Proof-of-Work. Neste modelo, para minerar um bloco, o computador tem de resolver um problema matemático difícil: encontrar um número (nonce) que faça o hash do bloco começar por cinco zeros. Este processo consome tempo e poder de processamento, o que torna muito caro para um atacante tentar reescrever a história da rede, pois ele teria de ser mais rápido do que todos os outros mineradores juntos. Na nossa implementação, se houver um empate (dois mineradores terminarem ao mesmo tempo), a rede segue a regra da cadeia mais longa, garantindo que todos chegam a um acordo final.
+
+Importa referir que, para efeitos de demonstração académica, o gatilho da mineração no nosso protótipo é acionado manualmente através do comando /mine ou via endpoint administrativo da API. Esta escolha foi deliberada para permitir uma auditoria visual clara dos logs durante a apresentação do projeto, garantindo que o avaliador consegue observar o estado da Mempool antes e depois da selagem do bloco. Numa versão final de produção, este processo seria totalmente automatizado, disparando sempre que houvesse transações pendentes ou seguindo um intervalo de tempo fixo (slots).
+
+\subsection{Proof-of-Stake e o Poder do VRF}
+Para tornar o sistema mais moderno e ecológico, evoluímos para o Proof-of-Stake aliado a Funções Aleatórias Verificáveis (VRF). Como o nosso projeto foca-se na simulação da infraestrutura de uma blockchain funcional, optámos por utilizar a reputação acumulada dos nós como um substituto direto para o conceito de "Stake". Numa rede real, o stake seria composto por moedas nativas depositadas em garantia; aqui, temos um sistema baseado em mérito: quanto melhor o comportamento histórico do nó, maior a sua probabilidade de ser escolhido pelo VRF para selar o próximo bloco. 
+
+Na prática, o VRF funciona como uma lotaria criptográfica justa e imprevisível. Em cada turno de mineração, o sistema sorteia um vencedor. Graças à matemática do VRF, o vencedor pode provar a todos que ganhou de forma legítima, e nenhum outro nó pode prever ou manipular esse resultado. Este mecanismo elimina a necessidade de "queimar" eletricidade com hashes, mantendo a rede segura e descentralizada através de identidades digitais fortes.
+
+\subsection{Mecanismo de Finalidade e Segurança Financeira}
+Sabemos que, num sistema distribuído, um bloco acabado de minerar pode por vezes desaparecer se houver uma reorganização da rede. Por questões de segurança, introduzimos o conceito de finalidade. Definimos que um bloco só é considerado 100\% permanente e imutável após receber 6 confirmações da rede. Isto significa que um vendedor de um leilão só deve considerar o negócio fechado quando o bloco onde a venda foi registada tiver mais 6 blocos minerados por cima dele. Criámos rotas na API que permitem aos utilizadores ver exatamente quão perto de ser "Final" está cada uma das suas operações.
+
+\section{Sistema de Reputação e Mitigação BFT}
+
+\subsection{O Motor de Reputação Persistente}
+Como a nossa rede é aberta e qualquer pessoa pode ligar um nó, precisamos de uma forma de distinguir os bons dos maus. Para isso, construímos um motor de reputação persistente. Cada nó na rede tem uma pontuação que sobe quando ele ajuda a rede (minando blocos corretos) e desce drasticamente quando ele tenta fazer batota (como enviar blocos falsos). Esta pontuação é guardada em disco para que, se um atacante reiniciar o seu computador, ele continue a ser visto pela rede como alguém em quem não se deve confiar. A reputação é usada como um peso na nossa lotaria de Proof-of-Stake, favorecendo os nós honestos.
+
+\subsection{Banimento BFT e Veto Social}
+Quando um nó se porta muito mal e a sua reputação desce abaixo de um nível muito baixo (como -50), o sistema ativa o banimento automático. Este é um mecanismo de Tolerância a Falhas Bizantinas, onde a rede decide coletivamente ignorar o nó malicioso. O nó banido deixa de conseguir espalhar mensagens pelo Gossipsub e a sua API deixa de aceitar comandos de escrita. É como se a rede desse um "veto social" ao atacante, isolando-o completamente para que ele não consiga prejudicar o funcionamento dos leilões dos outros utilizadores honestos.
+
+\section{Implementação Técnica em Rust e Tokio}
+
+\subsection{Concorrência e Performance Assíncrona}
+Decidimos usar a linguagem Rust pela sua fama de ser rápida e segura, o que se confirmou ser verdade durante o projeto. O nosso sistema utiliza o runtime Tokio para gerir milhares de tarefas ao mesmo tempo sem nunca bloquear. O segredo da nossa implementação está na macro tokio::select!, que permite ao nó estar a "ouvir" a rede P2P, a API Web e os temporizadores internos tudo ao mesmo tempo. Isto é crucial porque o nó nunca pode parar de processar a rede só porque alguém está a fazer uma consulta pesada na API.
+
+    A utilização da macro \texttt{tokio::select!} é particularmente crítica na gestão do estado da \textit{Mempool} e na resolução de \textit{forks} (o mecanismo de \textit{catch-up}). Se um nó estiver no processo intensivo de selar um bloco e, simultaneamente, a \textit{thread} do \textit{Gossipsub} receber um bloco válido de outro par para a mesma altura da cadeia, a mineração local é abortada instantaneamente. O nó aceita o bloco externo, atualiza o \textit{Ledger} e, fundamentalmente, remove da sua \textit{Mempool} local todas as transações que já foram incluídas no bloco recebido. Isto impede a duplicação de transações e poupa recursos computacionais, permitindo que o nó avance imediatamente para a próxima ronda de consenso.
+
+    Na implementação prática do motor Proof-of-Work, o loop de selagem inclui chamadas periódicas a \texttt{tokio::task::yield\_now()} para ceder a execução ao scheduler e permitir que o \texttt{select!} detete rapidamente mensagens em canais como \texttt{external\_block\_rx}. Em termos operacionais, isto garante que uma tentativa de selagem em curso é cancelada quase imediatamente quando chega um bloco externo válido, evitando trabalho desperdiçado e acelerando a convergência da rede — comportamento confirmado nos nossos testes (detecção de gaps, pedidos de cadeia completa e adoção da cadeia mais longa).
+
+    Breve nota sobre forks e diferenças de altura: quando um nó recebe um bloco com índice maior do que o esperado (gap / index mismatch) inicia um pedido de sincronização (full chain) ao peer originador. Ao receber a cadeia, compara comprimentos e valida os blocos; se a cadeia remota for mais longa, o nó substitui a sua ("fork resolved"). Diferenças de altura entre peers são, portanto, temporárias e normalmente causadas por latência de rede, selagens simultâneas ou partições; o protocolo cancela selagens locais e sincroniza para a cadeia mais longa para garantir convergência.
+
+
+\subsection{Desenvolvimento da API com Axum}
+Para a interface com os utilizadores e scripts, usamos a framework Axum. Desenhámos a API para ser moderna e fácil de usar, com endpoints que devolvem toda a informação necessária para um utilizador perceber o que se está a passar. Um detalhe importante foi a implementação de rotas dinâmicas: por exemplo, para ver um leilão específico, o utilizador faz um GET para /auction/:id. Aprendemos que a gestão correta destas rotas é essencial para evitar erros 404 e garantir que a API responde de forma standard, seguindo as melhores práticas da indústria.
+
+\section{Modelação de Ameaças e Análise de Segurança}
+
+Para garantir que o nosso sistema é realmente "secure-by-design", realizámos uma análise profunda dos riscos. A Tabela \ref{tab:threats} mostra como a nossa arquitetura responde a cada um dos perigos identificados no início do trabalho.
+
+\begin{table}[H]
+\centering
+\caption{Matriz de Ameaças e Mitigação P2P}
+\label{tab:threats}
+\begin{tabular}{@{}p{3cm} p{11cm}@{}}
+\toprule
+\textbf{Ameaça} & \textbf{Estratégia de Defesa Implementada} \\ \midrule
+\textbf{Spoofing} & Assinaturas Ed25519 obrigatórias em todas as ações financeiras. \\ \addlinespace
+\textbf{Sybil Attack} & Reputação BFT que exige tempo e bom comportamento para ganhar influência. \\ \addlinespace
+\textbf{Replay Attack} & Uso de Nonces sequenciais verificados no estado do Ledger por cada PeerID. \\ \addlinespace
+\textbf{Eclipse Attack} & Ligação a múltiplos Bootstraps e rotação constante de vizinhos na DHT. \\ \addlinespace
+\textbf{Batota em PoS} & O VRF torna a seleção do minerador imprevisível e auditável por todos. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Proteção contra Ataques Sybil}
+Explicando melhor, o ataque Sybil acontece quando alguém cria centenas de contas falsas para tentar controlar a votação ou a mineração. No nosso sistema, isto não funciona porque as novas contas começam com reputação zero. Para um atacante conseguir ter poder de decisão, teria de passar semanas a comportar-se bem, o que torna o custo do ataque muito superior ao possível benefício. É uma defesa baseada no tempo e no mérito, que se mostrou ser muito eficaz nas nossas simulações.
+
+\subsection{Defesa contra Ataques de Replay e Eclipse}
+Para o ataque de Replay, a nossa solução de nonces é infalível: mesmo que um atacante copie uma mensagem inteira, o Ledger sabe que aquele número de sequência já foi usado. Quanto ao ataque Eclipse, onde alguém tenta cercar o nosso nó com vizinhos falsos, a nossa estratégia é a "diversidade de vizinhos". Através do Kademlia, o nosso nó está sempre à procura de novos amigos em diferentes partes da rede, garantindo que nunca fica dependente de apenas um grupo restrito de computadores que podem ser maliciosos.
+
+\section{Avaliação Experimental e Testes de Campo}
+
+Para provar que tudo o que planeámos funciona mesmo na realidade, realizámos vários testes práticos. A Tabela \ref{tab:performance} mostra os tempos que medimos durante a execução do nosso cluster virtual, evidenciando a eficiência do nosso motor de consenso.
+
+\begin{table}[H]
+\centering
+\caption{Métricas Operacionais (Média de 30 Rondas)}
+\label{tab:performance}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Motor} & \textbf{Tempo de Bloco ($T_{block}$)} & \textbf{Latência de Rede ($T_{gossip}$)} \\ 
+\midrule
+Proof-of-Work & $\approx$ 136 a 1500 ms & $\approx$ 45 ms \\
+Proof-of-Stake & $\approx$ 12 $\mu$s & $\approx$ 40 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Testes de Churn com Docker}
+Usámos o Docker Compose para criar uma rede de 10 nós no nosso computador. Um dos testes mais giros foi desligar propositadamente vários nós ao mesmo tempo enquanto as pessoas estavam a licitar. Vimos que os nós que ficaram ligados aguentaram o sistema sem problemas. Quando os nós desligados voltaram a arrancar, eles foram ter com os vizinhos, pediram a lista dos blocos que tinham perdido e atualizaram-se sozinhos em poucos segundos. Isto provou que o nosso sistema é resiliente e sabe recuperar de falhas de hardware ou de rede.
+
+\subsection{Validação do Armazenamento Off-chain}
+Fizemos também um teste específico para o armazenamento de metadados. Criámos leilões com descrições gigantescas e verificámos nos logs que os dados estavam a ser guardados na DHT. Quando consultámos o ficheiro da blockchain, ficámos muito contentes ao ver que ele continuava pequeno e leve, com apenas os links para a DHT. Este teste validou a nossa teoria de que podíamos ter leilões com muita informação sem "entupir" o motor de consenso da blockchain. É a prova de que a nossa arquitetura híbrida escala muito melhor do que uma blockchain tradicional.
+
+\subsection{Arquitetura de Redirecionamento e Mapeamento de Portas na Simulação}
+Um aspeto crítico na validação da nossa rede descentralizada prende-se com a clara separação de conceitos (\textit{Separation of Concerns}) entre duas interfaces de comunicação distintas operadas por cada nó: a interface de aplicação (\textit{Off-chain}) e a interface de consenso (\textit{On-chain}).
+
+A primeira é materializada pela API REST (Axum), dedicada exclusivamente à escuta de pedidos vindos de clientes externos, como \textit{scripts} de teste e carteiras digitais. A segunda constitui o substrato P2P (libp2p), encarregue da comunicação direta entre os nós para roteamento Kademlia e difusão Gossipsub. Internamente, todos os nós são rigorosamente homogéneos e correm os mesmos serviços nas mesmas portas padrão: a API REST escuta na porta interna \texttt{8080}, enquanto o tráfego P2P utiliza a porta \texttt{44000}.
+
+Contudo, a orquestração de um cluster virtual com múltiplos nós no mesmo sistema operativo hospedeiro (\textit{Docker Host}) impõe restrições físicas de rede, visto que dois processos não podem disputar o mesmo porto no \textit{host}. Para contornar esta limitação sem quebrar o isolamento dos contentores, implementou-se uma política de mapeamento de portas assimétrico e incremental no ficheiro \texttt{docker-compose.yml}.
+
+Desta forma, a porta interna de API \texttt{8080} de cada contentor foi exposta para o exterior através de canais dedicados, por exemplo, a porta \texttt{8080} do hospedeiro aponta para o \textit{bootstrap1}, a \texttt{8081} para o \textit{peer1}, escalando consecutivamente até portas como a \texttt{8084} para o \textit{peer4}. O mesmo princípio de linearidade incremental foi aplicado às portas P2P, estendendo-se de \texttt{44000} a \texttt{44010}.
+
+Este desenho de engenharia permite demonstrar na defesa que o sistema é imune à centralização: qualquer cliente externo pode interagir e injetar transações em qualquer ponto da rede bastando alterar o porto-alvo do pedido HTTP, por exemplo de \texttt{8080} para \texttt{8084}. O nó recetor processará o pedido localmente e encarregar-se-á de o propagar epidemicamente via Gossipsub para os restantes pares, provando a natureza perfeitamente distribuída do protótipo.
+
+\subsection{Vulnerabilidade de Exaustão de Recursos e Estratégias de Mitigação}
+Durante a análise de segurança da interface de aplicação, identificou-se um vetor potencial para ataques de Negação de Serviço (DoS) por exaustão de recursos (I/O e CPU). Caso a blockchain atinja uma escala de grande magnitude, a pesquisa linear de transações antigas através da API REST forçaria o nó a percorrer sequencialmente o histórico de blocos, degradando a performance do sistema.
+
+Como estratégia corretiva para trabalho futuro, delinearam-se duas abordagens arquiteturais. A primeira consiste na imposição de um limite estrito de profundidade de pesquisa (\textit{Search Depth Limit}) ao nível das rotas do Axum; se uma transação não for localizada nos últimos $X$ blocos, o loop é abortado preventivamente, devolvendo um código HTTP 404. A segunda e mais robusta solução passa pela Indexação de Estado, introduzindo uma tabela de dispersão local, por exemplo, um \textit{HashMap} em memória ou uma base de dados chave-valor como RocksDB, que mapeia de forma persistente o identificador da transação (\textit{TxID}) para a altura exata do bloco (\textit{Block Height}). Esta indexação transforma a pesquisa linear de complexidade $O(N)$ numa operação de tempo constante $O(1)$, neutralizando por completo o vetor de DoS.
+
+\subsection{Automação da Mineração e Simulação Controlada}
+Embora os protocolos de blockchain em ambiente de produção exijam a mineração contínua e autónoma de blocos para garantir a vivacidade (\textit{liveness}) da rede, a nossa arquitetura optou deliberadamente por uma abordagem semi-automática na fase de prototipagem e testes. No sistema atual, a selagem de blocos é despoletada através de comandos manuais (via \texttt{/mine}) ou orquestrada pelos nossos \textit{scripts} de injeção em Python.
+
+    Esta escolha de \textit{design} foi estritamente metodológica, visando permitir uma simulação controlada e observável. Se o sistema operasse de forma 100\% autónoma, selando blocos a cada poucos segundos, tornar-se-ia inviável para efeitos de auditoria visualizar fenómenos transitórios e complexos. A manutenção do gatilho manual permitiu-nos injetar transações, observar a deduplicação em tempo real na \textit{Mempool}, provocar \textit{forks} intencionais através de mineração simultânea e validar o castigo do motor BFT passo a passo de forma determinística.
+
+    Importa notar que o protótipo expõe uma opção de configuração 
+    \texttt{AUTO\_MINE} que, quando ativada, dispara automaticamente o trigger de mineração em intervalos configurados. Nos nossos testes de cluster observámos que este modo aciona igualmente o motor Proof-of-Work: múltiplos peers selaram blocos automaticamente (ex.: blocos 6..11 nos registos de execução) e a rede resolveu forks procedendo a sincronizações completas quando necessário. Assim, o modo automático é funcional tanto para PoW como para PoS, sendo o comportamento diferente em PoS quando o nó não for elegível na lotaria VRF.
+
+A transição deste protótipo para um modelo totalmente automático é, contudo, arquiteturalmente direta na nossa \textit{stack} tecnológica. Em cenários de produção, bastaria instanciar uma rotina em \textit{background} utilizando o \textit{runtime} assíncrono Tokio, via \texttt{tokio::time::interval}. Este temporizador invocaria a função de mineração a intervalos regulares; caso a \textit{Mempool} não contivesse transações pendentes, o nó selaria um bloco vazio (\textit{empty block}), o qual serviria exclusivamente para atualizar o \textit{timestamp} global e manter a continuidade cronológica do consenso.
+
+\section{Discussão e Trabalho Futuro}
+
+Apesar de o sistema estar a funcionar muito bem, sabemos que há sempre coisas que podíamos melhorar. Por exemplo, a disponibilidade dos dados na DHT depende de os nós estarem ligados. Se as pessoas que guardam uma descrição se desligarem todas, a descrição "morre". No futuro, seria interessante implementar um sistema de incentivos ou de replicação mais agressivo para garantir que as descrições nunca se perdem. Outra ideia seria a privacidade: atualmente todos os leilões são públicos, mas podíamos usar encriptação para que só os participantes autorizados pudessem ler as descrições na DHT.
+
+\section{Conclusão}
+
+Este projeto permitiu aplicar, de forma prática, conceitos avançados de sistemas distribuídos, segurança e redes descentralizadas. O desenvolvimento de uma blockchain de raiz, aliado à implementação de mecanismos P2P com DHT e Gossip, bem como de motores de consenso resilientes, constituiu um desafio exigente e enriquecedor.
+
+Ao longo do trabalho, foi possível explorar soluções orientadas para escalabilidade, tolerância a falhas e integridade dos dados, recorrendo também a componentes como Off-chain Storage e VRF para reforçar a eficiência e robustez do sistema. A arquitetura desenvolvida demonstra o potencial de abordagens híbridas na construção de plataformas distribuídas seguras e adaptáveis.
+
+Para além dos resultados obtidos, este projeto contribuiu significativamente para aprofundar a compreensão sobre mecanismos de confiança descentralizada, mostrando como princípios matemáticos e criptográficos podem ser aplicados na construção de sistemas distribuídos modernos.
+
+\newpage
+\begin{thebibliography}{1}
+\bibitem{nakamoto} S. Nakamoto, ``Bitcoin: A peer-to-peer electronic cash system,'' 2008.
+\bibitem{skademlia} I. Baumgart and S. Mies, ``S/kademlia: Secure key-based routing,'' 2007.
+\bibitem{kademlia} P. Maymounkov and D. Mazieres, ``Kademlia: A peer-to-peer info system,'' 2002.
+\bibitem{repucoin} J. Yu et al., ``Repucoin: Your reputation is your power,'' 2019.
+\bibitem{libp2p} libp2p Team, ``libp2p: A modular network stack,'' \url{https://libp2p.io/}.
+\bibitem{axum} Axum Web Framework, \url{https://github.com/tokio-rs/axum}.
+\end{thebibliography}
+
+\end{document}

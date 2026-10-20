@@ -1,0 +1,97 @@
+services:
+  # --- BOOTSTRAP 1 ---
+  bootstrap1:
+    build: .
+    container_name: ledger_bootstrap_1
+    env_file: .env
+    networks:
+      ledger_net:
+        ipv4_address: 172.20.0.5
+    ports:
+      - "8080:8080"
+      - "44000:44000"
+    volumes:
+      - bootstrap1_data:/data
+    environment:
+      RUST_LOG: info
+      NODE_WORKDIR: /data
+    command: ["ledger"]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  # --- BOOTSTRAP 2 ---
+  bootstrap2:
+    build: .
+    container_name: ledger_bootstrap_2
+    env_file: .env
+    networks:
+      ledger_net:
+        ipv4_address: 172.20.0.6
+    ports:
+      - "8081:8080"
+      - "44001:44000"
+    volumes:
+      - bootstrap2_data:/data
+    environment:
+      RUST_LOG: info
+      NODE_WORKDIR: /data
+    # Bootstrap2 connects to bootstrap1 to form base network
+    command: ["ledger", "/ip4/172.20.0.5/tcp/44000"]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+  # --- BOOTSTRAP 3 ---
+  bootstrap3:
+    build: .
+    container_name: ledger_bootstrap_3
+    env_file: .env
+    networks:
+      ledger_net:
+        ipv4_address: 172.20.0.7
+    ports:
+      - "8082:8080"
+      - "44002:44000"
+    volumes:
+      - bootstrap3_data:/data
+    environment:
+      RUST_LOG: info
+      NODE_WORKDIR: /data
+    command: ["ledger", "/ip4/172.20.0.5/tcp/44000"]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+
+  peer:
+    build: .
+    depends_on:
+      - bootstrap1
+    env_file: .env
+    networks:
+      - ledger_net
+    volumes:
+      - /data
+    ports:
+      - "8084-8093:8080"
+    environment:
+      RUST_LOG: info
+      NODE_WORKDIR: /data
+    # Peers connect to bootstrap1; libp2p discovers others via DHT
+    command: ["ledger", "/ip4/172.20.0.5/tcp/44000"]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+networks:
+  ledger_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  bootstrap1_data:
+  bootstrap2_data:
+  bootstrap3_data:
